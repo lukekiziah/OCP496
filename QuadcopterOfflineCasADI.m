@@ -1246,6 +1246,177 @@ function animateTrajectory(Xtraj, name)
     CallItThis = sprintf('Animation complete. Replay using: movie(gcf, %s, 1, 30)',name);
     disp(CallItThis);
 end
+%%=== and save animation
+function animateAndSaveTrajectory(Xtraj, name)
+    % Assuming Xtraj is your (N+1) x n state matrix
+    rx = Xtraj(:,1); ry = Xtraj(:,2); rz = Xtraj(:,3);
+    phi = Xtraj(:,7); theta = Xtraj(:,8); psi = Xtraj(:,9);
+    
+    numFrames = size(Xtraj, 1);
+    gap = 1; % Adjust for playback speed
+    
+    % --- Define the Quadcopter Template ---
+    L = 0.25; % Arm length (meters)
+    R_prop = 0.15; % Propeller radius
+    
+    % Arms (X shape)
+    arm1 = [-L, L; 0, 0; 0, 0]; 
+    arm2 = [0, 0; -L, L; 0, 0]; 
+    
+    % "Up" Indicator 
+    mast_height = 0.2;
+    mast = [0, 0; 0, 0; 0, mast_height]; 
+    
+    % Propeller circle points (for the patch)
+    theta_cir = linspace(0, 2*pi, 20);
+    prop_circle = [R_prop*cos(theta_cir); R_prop*sin(theta_cir); zeros(1, 20)];
+    centers = [L, -L, 0, 0; 0, 0, L, -L; 0, 0, 0, 0];
+    
+    % --- Initialize Figure ---
+    fig = figure('WindowStyle', 'normal', 'Name', 'Epic Quadcopter Animation', 'Color', 'w');
+    hold on; view(35, 25); axis equal;
+    
+    % Set fixed axes to perfectly frame the 4x4x5 box
+    % X/Y from -2 to 2 (4m total), Z from 0 to 5 (5m total)
+    xlim([-2.2, 2.2]); 
+    ylim([-2.2, 2.2]); 
+    zlim([0, 5.2]);
+    xlabel('X (m)'); ylabel('Y (m)'); zlabel('Z (m)');
+    
+    % Turn off default grid, box handles the reference now
+    grid off; 
+    set(gca, 'Box', 'off');
+    
+    z_floor = 0; % Shadow projection plane
+    
+    % --- Draw the 4x4x5 Flight Arena ---
+    box_color = [0.85 0.85 0.85];
+    xb = [-2 2 2 -2 -2]; yb = [-2 -2 2 2 -2];
+    
+    % Bottom and Top perimeters
+    plot3(xb, yb, z_floor*ones(1,5), 'Color', box_color, 'LineWidth', 1.5, 'LineStyle', '--');
+    plot3(xb, yb, 5*ones(1,5), 'Color', box_color, 'LineWidth', 1.5, 'LineStyle', '--');
+    
+    % Vertical pillars
+    for k = 1:4
+        plot3([xb(k) xb(k)], [yb(k) yb(k)], [z_floor 5], 'Color', box_color, 'LineWidth', 1.5, 'LineStyle', '--');
+    end
+    % --- Initialize Plot Objects ---
+    
+    % 1. Faint full path
+    plot3(rx, ry, rz, 'Color', [0.8 0.8 0.8], 'LineWidth', 1.5, 'LineStyle', '--');
+    
+    % 2. Active colored trail
+    trail = plot3(rx(1), ry(1), rz(1), 'Color', [0 0.4 0.8], 'LineWidth', 2.0);
+    
+    % 3. Ground Shadows
+    shadow_color = [0.7 0.7 0.7];
+    sh_arm1 = plot3(arm1(1,:), arm1(2,:), z_floor*ones(1,2), 'Color', shadow_color, 'LineWidth', 2);
+    sh_arm2 = plot3(arm2(1,:), arm2(2,:), z_floor*ones(1,2), 'Color', shadow_color, 'LineWidth', 2);
+    sh_hub  = scatter3(0, 0, z_floor, 40, 'MarkerEdgeColor', 'none', 'MarkerFaceColor', shadow_color);
+    
+    % 4. Quadcopter Body
+    p_arm1 = plot3(arm1(1,:), arm1(2,:), arm1(3,:), 'k', 'LineWidth', 3);
+    p_arm2 = plot3(arm2(1,:), arm2(2,:), arm2(3,:), 'k', 'LineWidth', 3);
+    p_hub  = scatter3(0, 0, 0, 60, 'k', 'filled'); 
+    p_mast = plot3(mast(1,:), mast(2,:), mast(3,:), 'Color', [0 0.7 0], 'LineWidth', 2.5);
+    
+    % 5. Semi-Transparent Propellers (Using patch instead of plot3)
+    p_props = gobjects(1,4); sh_props = gobjects(1,4);
+    prop_colors = {[0.8 0.1 0.1], [0.8 0.1 0.1], [0.2 0.2 0.2], [0.2 0.2 0.2]}; 
+    
+    for j = 1:4
+        % Actual Propellers
+        p_props(j) = patch('XData', prop_circle(1,:) + centers(1,j), ...
+                           'YData', prop_circle(2,:) + centers(2,j), ...
+                           'ZData', prop_circle(3,:) + centers(3,j), ...
+                           'FaceColor', prop_colors{j}, 'FaceAlpha', 0.4, ...
+                           'EdgeColor', prop_colors{j}, 'LineWidth', 1.5);
+                       
+        % Shadow Propellers
+        sh_props(j) = patch('XData', prop_circle(1,:) + centers(1,j), ...
+                            'YData', prop_circle(2,:) + centers(2,j), ...
+                            'ZData', z_floor*ones(1,20), ...
+                            'FaceColor', shadow_color, 'FaceAlpha', 0.2, ...
+                            'EdgeColor', 'none');
+    end
+    
+    drawnow;
+    
+    % --- Setup Video Writer ---
+    video_filename = sprintf('%s.mp4', name);
+    v = VideoWriter(video_filename, 'MPEG-4');
+    v.FrameRate = 15; % Adjust frame rate to match your data
+    v.Quality = 100;  % Max video quality
+    open(v);
+    
+    % Preallocate structure for workspace saving
+    numSavedFrames = length(1:gap:numFrames);
+    quad_frames(numSavedFrames) = struct('cdata', [], 'colormap', []);
+    
+    frameCount = 1;
+    
+    % --- Animation Loop ---
+    for i = 1:gap:numFrames
+        if ~isgraphics(fig), break; end
+        
+        pos = [rx(i); ry(i); rz(i)];
+        
+        % Rotation Matrix (Z-Y-X Euler)
+        cphi = cos(phi(i)); sphi = sin(phi(i));
+        cthe = cos(theta(i)); sthe = sin(theta(i));
+        cpsi = cos(psi(i)); spsi = sin(psi(i));
+        
+        Rot = [cpsi*cthe,  cpsi*sthe*sphi - spsi*cphi,  cpsi*sthe*cphi + spsi*sphi;
+               spsi*cthe,  spsi*sthe*sphi + cpsi*cphi,  spsi*sthe*cphi - cpsi*sphi;
+               -sthe,      cthe*sphi,                   cthe*cphi];
+        
+        % Transform Body
+        arm1_rot = Rot * arm1 + pos;
+        arm2_rot = Rot * arm2 + pos;
+        mast_rot = Rot * mast + pos;
+        
+        set(p_arm1, 'XData', arm1_rot(1,:), 'YData', arm1_rot(2,:), 'ZData', arm1_rot(3,:));
+        set(p_arm2, 'XData', arm2_rot(1,:), 'YData', arm2_rot(2,:), 'ZData', arm2_rot(3,:));
+        set(p_mast, 'XData', mast_rot(1,:), 'YData', mast_rot(2,:), 'ZData', mast_rot(3,:));
+        set(p_hub, 'XData', pos(1), 'YData', pos(2), 'ZData', pos(3));
+        
+        % Transform Shadows
+        set(sh_arm1, 'XData', arm1_rot(1,:), 'YData', arm1_rot(2,:));
+        set(sh_arm2, 'XData', arm2_rot(1,:), 'YData', arm2_rot(2,:));
+        set(sh_hub, 'XData', pos(1), 'YData', pos(2));
+        
+        % Transform Propellers
+        for j = 1:4
+            prop_rot = Rot * (prop_circle + centers(:,j)) + pos;
+            set(p_props(j), 'XData', prop_rot(1,:), 'YData', prop_rot(2,:), 'ZData', prop_rot(3,:));
+            set(sh_props(j), 'XData', prop_rot(1,:), 'YData', prop_rot(2,:));
+        end
+        
+        % Update trail
+        set(trail, 'XData', rx(1:i), 'YData', ry(1:i), 'ZData', rz(1:i));
+        
+        drawnow;
+        
+        % Capture frame and write to video
+        current_frame = getframe(fig);
+        writeVideo(v, current_frame);
+        
+        % Save to structure for workspace
+        quad_frames(frameCount) = current_frame;
+        frameCount = frameCount + 1;
+        
+        % Optional: Remove or reduce pause if rendering is slow
+        % pause(0.01); 
+    end
+    
+    % Close video file
+    close(v);
+    
+    assignin('base', name, quad_frames);
+    CallItThis = sprintf('Animation complete.\nVideo saved as: %s\nReplay in MATLAB using: movie(gcf, %s, 1, 30)', video_filename, name);
+    disp(CallItThis);
+end
 
 %% ====== Model Paramter Perturbations ============
 function true_params = generatePerturbedParams(nominal_params, sd_percentages)
