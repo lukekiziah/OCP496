@@ -1,4 +1,4 @@
-function [dfdx, dfdu, f_sym, xvec, uvec] = linearizeDynamics(eq_cells, numstatevars, numcontrolvars)
+function [dfdx, dfdu, f_sym, xvec, uvec, constvec] = linearizeDynamics(eq_cells, numstatevars, numcontrolvars, const_cells)
     % linearizeDynamics Linearizes a system of nonlinear equations of motion.
     % 
     % Inputs:
@@ -13,19 +13,26 @@ function [dfdx, dfdu, f_sym, xvec, uvec] = linearizeDynamics(eq_cells, numstatev
     %   xvec  - Symbolic state vector [x1; x2; ...]
     %   uvec  - Symbolic control vector [u1; u2; ...]
 
-    % 1. Create symbolic state and control vectors dynamically
-    % This automatically generates column vectors [x1; x2; ...] and [u1; u2; ...]
+    % 1. Create symbolic state and control vectors
     xvec = sym('x', [numstatevars, 1]);
     uvec = sym('u', [numcontrolvars, 1]);
+    
+    % 2. Create the symbolic constants vector
+    % The sym() function can take a cell array of chars/strings and 
+    % instantly convert it into a vector of symbolic variables.
+    if nargin > 3 && ~isempty(const_cells)
+        constvec = sym(const_cells);
+        constvec = constvec(:); % Ensure it's a column vector
+    else
+        constvec = sym([]); % Empty if no constants provided
+    end
 
-    % 2. Convert the cell array of strings into symbolic expressions
-    % str2sym will automatically recognize 'x1', 'u1', etc., as symbolic variables
+    % 3. Convert the cell array of strings into symbolic expressions
+    % str2sym will automatically match 'm', 'g', etc. to the variables in constvec
     f_sym = str2sym(eq_cells);
-
-    % Ensure f_sym is a column vector to match the dimensions of xvec and uvec
     f_sym = f_sym(:);
 
-    % 3. Compute the Jacobians
+    % 4. Compute the Jacobians
     dfdx = jacobian(f_sym, xvec);
     dfdu = jacobian(f_sym, uvec);
 end
